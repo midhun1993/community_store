@@ -72,6 +72,26 @@ class Calculator
         $totals = self::getTotals();
         return $totals['total'];
     }
+	
+   public function addExternalAdjustment($total, $adjustment, $operator){
+		$newTotal = 0;
+		  switch ($operator) {
+		    case '+':
+		      $newTotal =   $total + $adjustment;
+		      break;
+
+		    case '-':
+		      $newTotal =   $total - $adjustment;
+		      break;
+
+		    default:
+			$newTotal = $total;
+		      break;
+		  }
+
+  	return $newTotal;
+	
+	}
 
         // returns an array of formatted cart totals
     public static function getTotals()
@@ -186,23 +206,5 @@ class Calculator
         return array('discountRatio'=>$discountRatio,'subTotal' => $adjustedSubtotal, 'taxes' => $taxes, 'taxTotal' => $totalTax, 'addedTaxTotal'=>$addedTaxTotal + $addedShippingTaxTotal,'includeTaxTotal'=>$includedTaxTotal + $includedShippingTaxTotal, 'shippingTotal' => $adjustedShippingTotal, 'total' => $total);
     }
 	
-	public function addExternalAdjustment($total, $adjustment, $operator){
-		$newTotal = 0;
-		  switch ($operator) {
-		    case '+':
-		      $newTotal =   $total + $adjustment;
-		      break;
-
-		    case '-':
-		      $newTotal =   $total - $adjustment;
-		      break;
-
-		    default:
-			$newTotal = 0;
-		      break;
-		  }
-
-  	return $newTotal;
 	
-	}
 }
