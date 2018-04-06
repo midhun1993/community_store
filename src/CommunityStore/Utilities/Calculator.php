@@ -165,6 +165,16 @@ class Calculator
 
         $total = $adjustedSubtotal + $adjustedShippingTotal + $addedTaxTotal + $addedShippingTaxTotal;
         $totalTax = $addedTaxTotal + $addedShippingTaxTotal + $includedTaxTotal + $includedShippingTaxTotal;
+	
+	// external adjustment amount , eg : 25
+	$external_adjustment_amount = (float) Session::get('community_store_external_adjustment_amount');
+	
+	// external adjustment operator , eg : '+' or '-'
+	$external_adjustment_operator = Session::get('community_store_external_adjustment_operator');
+	    
+	if($external_adjustment_amount > 0){
+		$total =self::addExternalAdjustment($total,$external_adjustment_amount, $external_adjustment_operator);
+	}    
 
         $adjustedSubtotal = round($adjustedSubtotal, 2);
         $adjustedShippingTotal = round($adjustedShippingTotal, 2);
@@ -175,4 +185,24 @@ class Calculator
 
         return array('discountRatio'=>$discountRatio,'subTotal' => $adjustedSubtotal, 'taxes' => $taxes, 'taxTotal' => $totalTax, 'addedTaxTotal'=>$addedTaxTotal + $addedShippingTaxTotal,'includeTaxTotal'=>$includedTaxTotal + $includedShippingTaxTotal, 'shippingTotal' => $adjustedShippingTotal, 'total' => $total);
     }
+	
+	public function addExternalAdjustment($total, $adjustment, $operator){
+		$newTotal = 0;
+		  switch ($operator) {
+		    case '+':
+		      $newTotal =   $total + $adjustment;
+		      break;
+
+		    case '-':
+		      $newTotal =   $total - $adjustment;
+		      break;
+
+		    default:
+			$newTotal = 0;
+		      break;
+		  }
+
+  	return $newTotal;
+	
+	}
 }
