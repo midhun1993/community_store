@@ -104,12 +104,16 @@ use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductOption\Pr
                                             } elseif (substr($groupID, 0, 2) == 'ph')  {
                                                 $groupID = str_replace("ph", "", $groupID);
                                                 $optionvalue = $valID;
+                                            } elseif (substr($groupID, 0, 2) == 'pc')  {
+                                                $groupID = str_replace("pc", "", $groupID);
+                                                $optionvalue = $valID;
                                             }
+
 
                                             $optiongroup = StoreProductOption::getByID($groupID);
 
                                             ?>
-                                            <?php if ($optionvalue) { ?>
+                                            <?php if ($optiongroup) { ?>
                                             <div class="store-cart-list-item-attribute">
                                                 <span class="store-cart-list-item-attribute-label"><?= ($optiongroup ? $optiongroup->getName() : '')?>:</span>
                                                 <span class="store-cart-list-item-attribute-value"><?= ($optionvalue ? h($optionvalue) : '')?></span>
@@ -124,7 +128,7 @@ use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductOption\Pr
                                 <?php if (isset($cartItem['product']['customerPrice'])) { ?>
                                     <?=StorePrice::format($cartItem['product']['customerPrice'])?>
                                 <?php } else {  ?>
-                                    <?=StorePrice::format($product->getActivePrice())?>
+                                    <?=StorePrice::format($product->getActivePrice($qty))?>
                                 <?php } ?>
                             </td>
 

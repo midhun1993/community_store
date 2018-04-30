@@ -98,6 +98,11 @@ class Product
     /**
      * @Column(type="boolean")
      */
+    protected $pQuantityPrice;
+
+    /**
+     * @Column(type="boolean")
+     */
     protected $pFeatured;
 
     /**
@@ -260,6 +265,58 @@ class Product
         return $this->related;
     }
 
+    /**
+     * @OneToMany(targetEntity="Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductPriceTier", mappedBy="product",cascade={"persist"}))
+     * @OrderBy({"ptFrom" = "ASC"})
+     */
+    protected $priceTiers;
+
+    public function getPriceTiers(){
+        return $this->priceTiers;
+    }
+
+    protected $discountRules;
+
+    protected $discountRuleIDs;
+
+    public function addDiscountRules($rules) {
+        foreach($rules as $rule) {
+            $this->addDiscountRule($rule);
+        }
+    }
+
+
+    public function addDiscountRule($discountRule) {
+        if (!is_array($this->discountRules)) {
+            $this->discountRules = array();
+            $this->discountRuleIDs = array();
+        }
+
+        //add only if rule hasn't been added before
+        if (!in_array($discountRule->getID(), $this->discountRuleIDs)) {
+            $discountProductGroups = $discountRule->getProductGroups();
+            $include = false;
+
+            if (!empty($discountProductGroups)) {
+                $groupids = $this->getGroupIDs();
+                if (count(array_intersect($discountProductGroups, $groupids)) > 0) {
+                    $include = true;
+                }
+            } else {
+                $include = true;
+            }
+
+            if ($include) {
+                $this->discountRules[] = $discountRule;
+                $this->discountRuleIDs[] = $discountRule->getID();
+            }
+        }
+    }
+
+    public function getDiscountRules() {
+        return is_array($this->discountRules) ? $this->discountRules : array();
+    }
+
     public function __construct()
     {
         $this->locations = new ArrayCollection();
@@ -269,8 +326,8 @@ class Product
         $this->userGroups = new ArrayCollection();
         $this->options = new ArrayCollection();
         $this->related = new ArrayCollection();
+        $this->priceTiers = new ArrayCollection();
     }
-
 
     public function setVariation($variation)
     {
@@ -299,11 +356,13 @@ class Product
             $optionkeys = array();
 
             foreach ($options as $option) {
-                $optionItems = $option->getOptionItems();
-                foreach ($optionItems as $optionItem) {
-                    if (!$optionItem->isHidden()) {
-                        $optionkeys[] = $optionItem->getID();
-                        break;
+                if ($option->getIncludeVariations()) {
+                    $optionItems = $option->getOptionItems();
+                    foreach ($optionItems as $optionItem) {
+                        if (!$optionItem->isHidden()) {
+                            $optionkeys[] = $optionItem->getID();
+                            break;
+                        }
                     }
                 }
             }
@@ -339,7 +398,7 @@ class Product
     }
     public function setPrice($price)
     {
-        $this->pPrice = ($price != '' ? $price : null);
+        $this->pPrice = ($price != '' ? $price : 0);
     }
     public function setSalePrice($price)
     {
@@ -493,19 +552,15 @@ class Product
         if ($data['pID']) {
             //if we know the pID, we're updating.
             $product = self::getByID($data['pID']);
-            $originalProduct = clone $product;
-
             $product->setPageDescription($data['pDesc']);
-            $newproduct = false;
+
             if ($data['pDateAdded_dt']) {
                 $product->setDateAdded(new \DateTime($data['pDateAdded_dt'] . ' ' . $data['pDateAdded_h'] . ':' . $data['pDateAdded_m']));
             }
         } else {
             //else, we don't know it and we're adding a new product
             $product = new self();
-            $dt = Core::make('helper/date');
             $product->setDateAdded(new \DateTime());
-            $newproduct = true;
         }
         $product->setName($data['pName']);
         $product->setSKU($data['pSKU']);
@@ -535,6 +590,7 @@ class Product
         $product->setPriceSuggestions($data['pPriceSuggestions']);
         $product->setPriceMaximum($data['pPriceMaximum']);
         $product->setPriceMinimum($data['pPriceMinimum']);
+        $product->setQuantityPrice($data['pQuantityPrice']);
 
         // if we have no product groups, we don't have variations to offer
         if (empty($data['poName'])) {
@@ -546,15 +602,8 @@ class Product
         $product->save();
         if (!$data['pID']) {
             $product->generatePage($data['selectPageTemplate']);
-        }
-
-        // create product event and dispatch
-        if ($newproduct) {
-            $event = new StoreProductEvent($product);
-            Events::dispatch('on_community_store_product_add', $event);
         } else {
-            $event = new StoreProductEvent($originalProduct, $product);
-            Events::dispatch('on_community_store_product_update', $event);
+            $product->updatePage();
         }
 
         return $product;
@@ -602,22 +651,60 @@ class Product
     {
         return $this->pDetail;
     }
-    public function getPrice()
+
+    public function getBasePrice() {
+        return $this->pPrice;
+    }
+
+    // set ignoreDiscounts to true to get the undiscounted price
+    public function getPrice($qty = 1, $ignoreDiscounts = false)
     {
         if ($this->hasVariations() && $variation = $this->getVariation()) {
             if ($variation) {
                 $varprice = $variation->getVariationPrice();
 
                 if ($varprice) {
-                    return $varprice;
+                    $price =  $varprice;
                 } else {
-                    return $this->pPrice;
+                    $price =  $this->getQuantityAdjustedPrice($qty);
                 }
             }
         } else {
-            return $this->pPrice;
+            $price =  $this->getQuantityAdjustedPrice($qty);
         }
+
+        $discounts = $this->getDiscountRules();
+
+        if (!$ignoreDiscounts) {
+            if (!empty($discounts)) {
+                foreach ($discounts as $discount) {
+                    $discount->setApplicableTotal($price);
+                    $discountedprice = $discount->returnDiscountedPrice();
+
+                    if ($discountedprice !== false) {
+                        $price = $discountedprice;
+                    }
+                }
+            }
+        }
+
+        return $price;
     }
+
+    private function getQuantityAdjustedPrice($qty = 1) {
+        if ($this->hasQuantityPrice()) {
+            $priceTiers = $this->getPriceTiers();
+
+            foreach($priceTiers as $pt) {
+                if ($qty >= $pt->getFrom() && $qty <= $pt->getTo()) {
+                    return $pt->getPrice();
+                }
+            }
+        }
+
+        return $this->pPrice;
+    }
+
     public function getFormattedOriginalPrice()
     {
         return StorePrice::format($this->getPrice());
@@ -651,18 +738,19 @@ class Product
         }
     }
 
-    public function getActivePrice()
+    public function getActivePrice($qty = 1)
     {
         $salePrice = $this->getSalePrice();
         if ($salePrice != "") {
             return $salePrice;
         } else {
-            return $this->getPrice();
+            return $this->getPrice($qty);
         }
+
     }
-    public function getFormattedActivePrice()
+    public function getFormattedActivePrice($qty = 1)
     {
-        return StorePrice::format($this->getActivePrice());
+        return StorePrice::format($this->getActivePrice($qty));
     }
     public function getTaxClassID()
     {
@@ -690,6 +778,18 @@ class Product
     }
     public function allowCustomerPrice() {
         return (bool) $this->pCustomerPrice;
+    }
+
+    public function hasQuantityPrice() {
+        return (bool) $this->pQuantityPrice;
+    }
+
+    public function getQuantityPrice() {
+        return $this->pQuantityPrice;
+    }
+
+    public function setQuantityPrice($bool) {
+        $this->pQuantityPrice = (!is_null($bool) ? $bool : false);
     }
 
     public function getDimensions($whl = null)
@@ -961,6 +1061,22 @@ class Product
         $em->flush();
     }
 
+	public function reindex()
+	{
+		$attribs = StoreProductKey::getAttributes(
+			$this->pID,
+			'getSearchIndexValue'
+		);
+		$app = Application::getFacadeApplication();
+		$db = $app->make('database')->connection();
+
+		$db->Execute('DELETE FROM CommunityStoreProductSearchIndexAttributes WHERE pID = ?', array($this->pID));
+		$searchableAttributes = array('pID' => $this->pID);
+
+		$key = new StoreProductKey();
+		$key->reindex('CommunityStoreProductSearchIndexAttributes', $searchableAttributes, $attribs);
+	}
+
     public function delete() {
         $em = \ORM::entityManager();
         $em->remove($this);
@@ -1083,7 +1199,6 @@ class Product
             $spk->saveAttribute($newproduct, $value);
         }
 
-
         $variations = $this->getVariations();
         $newvariations = array();
 
@@ -1091,7 +1206,7 @@ class Product
             foreach ($variations as $variation) {
                 $cloneVariation = clone $variation;
                 $cloneVariation->setProductID($newproduct->getID());
-                $cloneVariation->save();
+                $cloneVariation->save(true);
                 $newvariations[] = $cloneVariation;
             }
         }
@@ -1108,7 +1223,7 @@ class Product
             foreach($variation->getOptions() as $option) {
                 $optionid = $option->getOption()->getID();
                 $option->setOption($optionMap[$optionid]);
-                $option->save();
+                $option->save(true);
             }
         }
 
@@ -1120,7 +1235,12 @@ class Product
             }
             StoreProductRelated::addRelatedProducts(array('pRelatedProducts' => $related), $newproduct);
         }
-        
+
+        $em = \ORM::entityManager();
+        $em->flush();
+
+		$newproduct->reindex();
+
         // create product event and dispatch
         $event = new StoreProductEvent($this, $newproduct);
         Events::dispatch('on_community_store_product_duplicate', $event);
@@ -1136,30 +1256,50 @@ class Product
         if ($targetCID > 0) {
             $parentPage = Page::getByID($targetCID);
             $pageType = PageType::getByHandle('store_product');
-            $pageTemplate = $pageType->getPageTypeDefaultPageTemplateObject();
 
-            if ($parentPage && $pageType && $pageTemplate) {
-                if ($templateID) {
-                    $pt = PageTemplate::getByID($templateID);
-                    if (is_object($pt)) {
-                        $pageTemplate = $pt;
+            if ($pageType && $parentPage && !$parentPage->isError()) {
+                $pageTemplate = $pageType->getPageTypeDefaultPageTemplateObject();
+
+                if ($pageTemplate) {
+                    if ($templateID) {
+                        $pt = PageTemplate::getByID($templateID);
+                        if (is_object($pt)) {
+                            $pageTemplate = $pt;
+                        }
                     }
-                }
-                $newProductPage = $parentPage->add(
-                    $pageType,
-                    array(
-                        'cName' => $this->getName(),
-                        'pkgID' => $pkg->getPackageID(),
-                    ),
-                    $pageTemplate
-                );
-                $newProductPage->setAttribute('exclude_nav', 1);
+                    $newProductPage = $parentPage->add(
+                        $pageType,
+                        array(
+                            'cName' => $this->getName(),
+                            'pkgID' => $pkg->getPackageID(),
+                        ),
+                        $pageTemplate
+                    );
+                    $newProductPage->setAttribute('exclude_nav', 1);
 
-                $this->savePageID($newProductPage->getCollectionID());
-                $this->setPageDescription($this->getDesc());
+                    $this->savePageID($newProductPage->getCollectionID());
+                    $this->setPageDescription($this->getDesc());
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function updatePage() {
+        $pageID = $this->getPageID();
+
+        if ($pageID) {
+            $page = Page::getByID($pageID);
+
+            if ($page && !$page->isError() && $page->getCollectionName() != $this->getName()) {
+                $page->updateCollectionName($this->getName());
             }
         }
     }
+
     public function setPageDescription($newDescription)
     {
         $productDescription = strip_tags(trim($this->getDesc()));
@@ -1205,6 +1345,7 @@ class Product
             $ak = StoreProductKey::getByHandle($ak);
         }
         $ak->setAttribute($this, $value);
+		$this->reindex();
     }
     public function getAttribute($ak, $displayMode = false)
     {
@@ -1247,5 +1388,61 @@ class Product
         }
 
         return $av;
+    }
+
+    public function getVariationData() {
+        $firstAvailableVariation = false;
+
+        if ($this->hasVariations()) {
+            $availableOptionsids = false;
+            foreach ($this->getVariations() as $variation) {
+                $isAvailable = false;
+
+                if ($variation->isSellable()) {
+                    $variationOptions = $variation->getOptions();
+
+                    foreach ($variationOptions as $variationOption) {
+                        $opt = $variationOption->getOption();
+                        if ($opt->isHidden()) {
+                            $isAvailable = false;
+                            break;
+                        } else {
+                            $isAvailable = true;
+                        }
+                    }
+                    if ($isAvailable) {
+                        $availableOptionsids = $variation->getOptionItemIDs();
+                        $this->shallowClone = true;
+                        $firstAvailableVariation = clone $this;
+                        $firstAvailableVariation->setVariation($variation);
+
+                        break;
+                    }
+                }
+            }
+        }
+
+        return array('firstAvailableVariation'=>$firstAvailableVariation, 'availableOptionsids'=>$availableOptionsids);
+    }
+
+    // helper function for working with variation options
+    public function getVariationLookup() {
+        $variationLookup = array();
+
+        if ($this->hasVariations()) {
+            $variations = StoreProductVariation::getVariationsForProduct($this);
+
+            $variationLookup = array();
+
+            if (!empty($variations)) {
+                foreach ($variations as $variation) {
+                    // returned pre-sorted
+                    $ids = $variation->getOptionItemIDs();
+                    $variationLookup[implode('_', $ids)] = $variation;
+                }
+            }
+        }
+
+        return $variationLookup;
     }
 }

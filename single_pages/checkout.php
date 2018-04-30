@@ -2,8 +2,8 @@
 defined('C5_EXECUTE') or die(_("Access Denied."));
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Utilities\Price as StorePrice;
 use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrderKey;
-
 ?>
+<div class="store-checkout-page">
 <?php if ($controller->getTask() == "view" || $controller->getTask() == "failed") { ?>
 
     <h1><?= t("Checkout") ?></h1>
@@ -13,12 +13,12 @@ use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrd
     $a->display();
     ?>
 
-    <div class="row">
+    <div class="store-checkout-form-row row">
 
-        <div class="store-checkout-form-shell col-md-8">
+        <div class="store-checkout-form-shell col-md-8 clearfix">
 
             <?php
-            if ($customer->isGuest() && ($requiresLogin || $guestCheckout == 'off' || ($guestCheckout == 'option' && $_GET['guest'] != '1'))) {
+            if ($customer->isGuest() && ($requiresLogin || $guestCheckout == 'off' || ($guestCheckout == 'option' && !$guest))) {
                 ?>
                 <div class="store-checkout-form-group store-active-form-group" id="store-checkout-form-group-signin">
 
@@ -46,7 +46,7 @@ use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrd
                                 <div class="col-md-6">
                                     <p><?= t("Or optionally, you may choose to checkout as a guest.") ?></p>
                                     <a class="btn btn-default"
-                                       href="<?= \URL::to('/checkout/?guest=1') ?>"><?= t("Checkout as Guest") ?></a>
+                                       href="<?= \URL::to('/checkout/1') ?>"><?= t("Checkout as Guest") ?></a>
                                 </div>
                             <?php } ?>
                         </div>
@@ -130,8 +130,15 @@ use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrd
                                         <div class="row" data-akid="<?= $ak->getAttributeKeyID()?>">
                                             <div class="col-md-12">
                                                 <div class="form-group">
-                                                    <label><?= $ak->getAttributeKeyDisplayName(); ?></label>
-                                                     <?php $ak->getAttributeType()->render('form', $ak); ?>
+                                                    <label><?= $ak->getAttributeKeyDisplayName(); ?></label><br />
+                                                     <?php
+                                                     $fieldoutput = $ak->getAttributeType()->render('form', $ak, '', true);
+                                                     if ($ak->isRequired()) {
+                                                        echo str_replace('<input ', '<input required="required"', $fieldoutput);
+                                                     } else {
+                                                        echo $fieldoutput;
+                                                     }
+                                                      ?>
                                                 </div>
                                             </div>
                                         </div>
@@ -335,7 +342,7 @@ use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrd
                 <?php } ?>
 
                 <form class="store-checkout-form-group " id="store-checkout-form-group-payment" method="post"
-                      action="<?= \URL::to('/checkout/submit') ?>">
+                      action="<?= \URL::to('/checkout/submit'. ($guest ? '/1' : '')) ?>">
 
                     <div class="store-checkout-form-group-body">
                         <h2><?= t("Payment") ?></h2>
@@ -519,3 +526,4 @@ use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrd
         }
     </style>
 <?php } ?>
+</div>

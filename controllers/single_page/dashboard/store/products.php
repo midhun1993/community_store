@@ -6,7 +6,7 @@ use \Concrete\Core\Page\Controller\DashboardPageController;
 use Core;
 use PageType;
 use GroupList;
-
+use Events;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\Product as StoreProduct;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductFile as StoreProductFile;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductGroup as StoreProductGroup;
@@ -17,10 +17,12 @@ use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductUserGroup
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductVariation\ProductVariation as StoreProductVariation;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductRelated as StoreProductRelated;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductOption\ProductOption as StoreProductOption;
+use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductPriceTier as StoreProductPriceTier;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Group\Group as StoreGroup;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Group\GroupList as StoreGroupList;
 use \Concrete\Package\CommunityStore\Src\Attribute\Key\StoreProductKey;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Tax\TaxClass as StoreTaxClass;
+use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductEvent as StoreProductEvent;
 
 class Products extends DashboardPageController
 {
@@ -43,7 +45,7 @@ class Products extends DashboardPageController
 
 
         if ($this->get('keywords')) {
-            $products->setSearch($this->get('keywords'));
+            $products->setSearch(trim($this->get('keywords')));
         }
 
         $this->set('productList', $products);
@@ -98,6 +100,17 @@ class Products extends DashboardPageController
             }
         }
 
+        $targetCID = \Config::get('community_store.productPublishTarget');
+
+        $productPublishTarget = false;
+
+        if ($targetCID > 0) {
+            $parentPage = \Page::getByID($targetCID);
+            $productPublishTarget =  ($parentPage && !$parentPage->isError());
+        }
+
+        $this->set('productPublishTarget',$productPublishTarget);
+        $this->set('page',false);
         $this->set('pageTitle', t('Add Product'));
         $this->set('usergroups', $usergrouparray);
     }
@@ -130,20 +143,21 @@ class Products extends DashboardPageController
         $options  = $product->getOptions();
 
         $variations = $product->getVariations();
-        $variationLookup = array();
 
+        $variationLookup = array();
         $optionArrays = array();
         $optionLookup = array();
-
         $optionItems = array();
 
         foreach($options as $opt) {
-            $optionLookup[$opt->getID()] = $opt;
+            if ($opt->getIncludeVariations()) {
+                $optionLookup[$opt->getID()] = $opt;
 
-            foreach($opt->getOptionItems() as $optItem) {
-                $optionArrays[$opt->getID()][] = $optItem->getID();
-                $optionItemLookup[$optItem->getID()] = $optItem;
-                $optionItems[] = $optItem;
+                foreach($opt->getOptionItems() as $optItem) {
+                        $optionArrays[$opt->getID()][] = $optItem->getID();
+                        $optionItemLookup[$optItem->getID()] = $optItem;
+                        $optionItems[] = $optItem;
+                }
             }
         }
 
@@ -161,7 +175,7 @@ class Products extends DashboardPageController
             if (!is_array($option)) {
                 $checkedOptions[] = array($option);
             } else {
-                $checkedOptions[] =$option;
+                $checkedOptions[] = $option;
             }
         }
 
@@ -208,6 +222,29 @@ class Products extends DashboardPageController
                 $usergrouparray[$ug->gID] = $ug->gName;
             }
         }
+
+        $targetCID = \Config::get('community_store.productPublishTarget');
+
+        $productPublishTarget = false;
+
+        if ($targetCID > 0) {
+            $parentPage = \Page::getByID($targetCID);
+            $productPublishTarget =  ($parentPage && !$parentPage->isError());
+        }
+
+        $this->set('productPublishTarget',$productPublishTarget);
+
+        $pageID = $product->getPageID();
+        $page = false;
+
+        if ($pageID) {
+            $page = \Page::getByID($pageID);
+
+            if ($page->isError()) {
+                $page = false;
+            }
+        }
+        $this->set('page', $page);
 
         $this->set('pageTitle', t('Edit Product'));
         $this->set('usergroups', $usergrouparray);
@@ -260,12 +297,21 @@ class Products extends DashboardPageController
         $this->set('attribs',$attrList);
         
         $pageType = PageType::getByHandle("store_product");
-        $pageTemplates = $pageType->getPageTypePageTemplateObjects();
         $templates = array();
-        foreach($pageTemplates as $pt){
-            $templates[$pt->getPageTemplateID()] = $pt->getPageTemplateName();
+
+        $defaultTemplateID = 0;
+
+        if ($pageType) {
+            $pageTemplates = $pageType->getPageTypePageTemplateObjects();
+
+            foreach ($pageTemplates as $pt) {
+                $templates[$pt->getPageTemplateID()] = $pt->getPageTemplateName();
+            }
+
+            $defaultTemplateID = $pageType->getPageTypeDefaultPageTemplateID();
         }
         $this->set('pageTemplates',$templates);
+        $this->set('defaultTemplateID',$defaultTemplateID);
         $taxClasses = array();
         foreach(StoreTaxClass::getTaxClasses() as $taxClass){
             $taxClasses[$taxClass->getID()] = $taxClass->getTaxClassName();
@@ -285,7 +331,30 @@ class Products extends DashboardPageController
             $this->error = null; //clear errors
             $this->error = $errors;
             if (!$errors->has()) {
-                    
+
+                $originalProduct = false;
+
+                if ($data['pID']) {
+                    $product = StoreProduct::getByID($data['pID']);
+                    $originalProduct = clone $product;
+                    $originalProduct->setID($data['pID']);
+                }
+
+                    // if the save sent no options with variation inclusion, uncheck the variations box
+                if (isset($data['poIncludeVariations'])) {
+                    $allowVariations = false;
+
+                    foreach($data['poIncludeVariations'] as $variationInclude) {
+                        if ($variationInclude == 1) {
+                            $allowVariations = true;
+                        }
+                    }
+
+                    if (!$allowVariations) {
+                        $data['pVariations'] = 0;
+                    }
+                }
+
                 //save the product
                 $product = StoreProduct::saveProduct($data);
                 //save product attributes
@@ -317,6 +386,19 @@ class Products extends DashboardPageController
                 // save related products
                 StoreProductRelated::addRelatedProducts($data, $product);
 
+                StoreProductPriceTier::addPriceTiersForProduct($data, $product);
+
+				$product->reindex();
+
+                // create product event and dispatch
+                if (!$originalProduct) {
+                    $event = new StoreProductEvent($product);
+                    Events::dispatch('on_community_store_product_add', $event);
+                } else {
+                    $event = new StoreProductEvent($originalProduct, $product);
+                    Events::dispatch('on_community_store_product_update', $event);
+                }
+
                 if($data['pID']){
                     $this->redirect('/dashboard/store/products/edit/' . $product->getID(), 'updated');
                 } else {
@@ -334,9 +416,6 @@ class Products extends DashboardPageController
         }
         if(strlen($args['pName']) > 255){
             $e->add(t('The Product Name can not be greater than 255 Characters'));
-        }
-        if(!is_numeric($args['pPrice']) && !$args['pCustomerPrice']){
-            $e->add(t('The Price must be set, and numeric'));
         }
         if(!is_numeric($args['pQty']) && !$args['pQtyUnlim']){
             $e->add(t('The Quantity must be set, and numeric'));

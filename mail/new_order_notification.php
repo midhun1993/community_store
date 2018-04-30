@@ -34,6 +34,11 @@ ob_start();
                     <br><br>
                     <strong><?= t('Email') ?></strong>: <a href="mailto:<?= $order->getAttribute("email"); ?>"><?= $order->getAttribute("email"); ?></a><br>
                     <strong><?= t('Phone') ?></strong>: <?= $order->getAttribute("billing_phone") ?>
+                    <?php
+                    $vat_number = $order->getAttribute("vat_number");
+                    if ($vat_number) { ?>
+                    <br /><strong><?= t('VAT Number') ?></strong>: <?= $vat_number ?>
+                    <?php } ?>
                 </p>
             </td>
             <td style="vertical-align: top; padding: 0;">
@@ -59,10 +64,13 @@ ob_start();
                     <h3><?= t("Other Choices")?></h3>
                     <?php foreach ($orderChoicesAttList as $ak) {
                         $orderOtherAtt = $order->getAttributeValueObject(StoreOrderKey::getByHandle($ak->getAttributeKeyHandle()));
-                        if ($orderOtherAtt) { ?>
-                            <strong><?= $ak->getAttributeKeyDisplayName()?></strong>
-                            <p><?= str_replace("\r\n", "<br>", $orderOtherAtt->getValue('displaySanitized', 'display')); ?></p>
-                        <?php } ?>
+                        if ($orderOtherAtt) {
+                            $attvalue = trim($orderOtherAtt->getValue('displaySanitized', 'display'));
+                            if ($attvalue) { ?>
+                                <strong><?= $ak->getAttributeKeyDisplayName() ?></strong>
+                                <p><?= str_replace("\r\n", "<br>", $attvalue); ?></p>
+                            <?php }
+                        }?>
                     <?php } ?>
                 </td>
             </tr>

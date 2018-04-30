@@ -25,6 +25,7 @@ use Concrete\Package\CommunityStore\Src\CommunityStore\Payment\Method as StorePa
 use Concrete\Package\CommunityStore\Src\CommunityStore\Shipping\Method\ShippingMethodType as StoreShippingMethodType;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Order\OrderStatus\OrderStatus as StoreOrderStatus;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Tax\TaxClass as StoreTaxClass;
+use Concrete\Package\CommunityStore\Src\Attribute\Key\StoreProductKey;
 
 defined('C5_EXECUTE') or die(_("Access Denied."));
 
@@ -265,6 +266,10 @@ class Installer
         self::installOrderAttribute('shipping_first_name', $text, $pkg, $orderCustSet);
         self::installOrderAttribute('shipping_last_name', $text, $pkg, $orderCustSet);
         self::installOrderAttribute('shipping_address', $address, $pkg, $orderCustSet);
+        self::installOrderAttribute('vat_number', $text, $pkg, $orderCustSet, array(
+            'akHandle' => 'vat_number',
+            'akName' => t('VAT Number'),
+        ));
     }
 
     public static function installOrderAttribute($handle, $type, $pkg, $set, $data = null)
@@ -296,6 +301,11 @@ class Installer
             $pakc->associateAttributeKeyType(AttributeType::getByHandle('date_time'));
         }
     }
+
+	public static function addProductSearchIndexTable($pkg){
+		$spk = new StoreProductKey();
+		$spk->createIndexedSearchTable();
+	}
 
     public static function createDDFileset($pkg)
     {
@@ -365,5 +375,6 @@ class Installer
         }
         Localization::clearCache();
         self::installUserAttributes($pkg);
+		Installer::addProductSearchIndexTable($pkg);
     }
 }

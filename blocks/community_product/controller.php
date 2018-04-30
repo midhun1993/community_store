@@ -6,6 +6,7 @@ use Config;
 use Page;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Product\Product as StoreProduct;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductVariation\ProductVariation as StoreProductVariation;
+use \Concrete\Package\CommunityStore\Src\CommunityStore\Discount\DiscountRule as StoreDiscountRule;
 
 defined('C5_EXECUTE') or die("Access Denied.");
 class Controller extends BlockController
@@ -27,11 +28,18 @@ class Controller extends BlockController
     }
     public function view()
     {
-        if ($this->productLocation == 'page') {
+        $product = false;
+
+        if ($this->productLocation == 'page' || !$this->productLocation) {
             $cID = Page::getCurrentPage()->getCollectionID();
-            $product = StoreProduct::getByCollectionID($cID);
+
+            if ($cID) {
+                $product = StoreProduct::getByCollectionID($cID);
+            }
         } else {
-            $product = StoreProduct::getByID($this->pID);
+            if ($this->pID) {
+                $product = StoreProduct::getByID($this->pID);
+            }
         }
 
         if ($product) {
@@ -50,6 +58,22 @@ class Controller extends BlockController
 
                 $product->setInitialVariation();
                 $this->set('variationLookup', $variationLookup);
+            }
+
+            $codediscounts = false;
+            $automaticdiscounts = StoreDiscountRule::findAutomaticDiscounts();
+            $code = trim(\Session::get('communitystore.code'));
+
+            if ($code) {
+                $codediscounts = StoreDiscountRule::findDiscountRuleByCode($code);
+            }
+
+            if (!empty($automaticdiscounts)) {
+                $product->addDiscountRules($automaticdiscounts);
+            }
+
+            if (!empty($codediscounts)) {
+                $product->addDiscountRules($codediscounts);
             }
 
             $this->set('product', $product);
@@ -80,7 +104,8 @@ class Controller extends BlockController
         }
 
         if ($product) {
-            return $product->getName() . ' ' . $product->getDesc() . ' ' . $product->getDetail();
+            $sku = $product->getSKU();
+            return $product->getName() . ($sku ? ' (' .$sku. ')' : '') . ' ' . $product->getDesc() . ' ' . $product->getDetail();
         } else {
             return '';
         }

@@ -22,23 +22,32 @@ Payment gateways are to be installed as additional add-ons.
 
 Additional gateways can be found at:
 
-### Paypal Standard
+### Paypal Standard - https://www.paypal.com
 https://github.com/concrete5-community-store/community_store_paypal_standard
 
-### Stripe
+### Stripe - https://stripe.com
 https://github.com/concrete5-community-store/community_store_stripe
 
-### Pin Payments
+### Pin Payments - https://pin.net.au
 https://github.com/concrete5-community-store/community_store_pin_payments
 
-### Square
+### Square - https://squareup.com
 https://github.com/Babinsky/community_store_square
 
-### Authorize.Net
+### Authorize.Net - https://www.authorize.net
 https://github.com/concrete5-community-store/community_store_authorize_net
 
-### SOFORT
+### SOFORT - https://www.sofort.com
 https://github.com/concrete5-community-store/community_store_sofort
+
+### Mollie - https://www.mollie.com
+https://github.com/concrete5-community-store/community_store_mollie
+
+### DPS Payment Express - https://www.paymentexpress.com
+https://github.com/JeRoNZ/community_store_dps_pxpay
+
+### Worldpay - https://www.worldpay.com
+https://github.com/concrete5-community-store/community_store_worldpay_hosted
 
 ## Shipping Methods
 The store features two built in shipping methods, but like payment gateways these can be extended with further packages. 
@@ -47,7 +56,29 @@ https://github.com/concrete5-community-store/community_store_shipping_example
 
 ## Translations
 The Community Store package has multiple translations available at http://concrete5.github.io/package-translations/
-Translations are not included within the package, these need to be manually installed.
+Translations are not managed with the master branch but are included within releases.
+
+## Addons
+
+### User Account Order History
+Show a user's order history as a single page /account/orders:
+https://github.com/JeRoNZ/community_store_order_history
 
 ## PHP Version
-This add-on is intended to support PHP5.4+ onwards, being 100% operational on PHP7.
+This add-on is intended to support PHP5.6+ onwards, being 100% operational on PHP7.
+
+## Compatibility
+Community Store is designed to be  100% compatible with both version 5.7 and v8 of concrete5. Is is recommended that if you are starting a new project to use v8. 
+
+If you are adding Community Store to an exisiting 5.7 and you plan to also upgrade it to v8, upgrade concrete5 _before_ installing Community Store. 
+
+If you have an existing 5.7 site with Community Store and need to upgrade to v8, be aware that the upgrade _does_ work, but there is  one outstanding issue with concrete5's upgrade process that requires the following SQL command to be run on the DB to rectify:
+```sql
+REPLACE INTO LegacyAttributeKeys (
+	SELECT akID FROM Packages 
+	LEFT JOIN AttributeKeys
+	ON AttributeKeys.pkgID = Packages.pkgID
+	WHERE pkgHandle = 'community_store'
+	AND akCategory = 'legacykey'
+)
+```

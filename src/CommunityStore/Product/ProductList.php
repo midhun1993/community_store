@@ -8,6 +8,7 @@ use Concrete\Package\CommunityStore\Src\CommunityStore\Product\Product as StoreP
 use Concrete\Package\CommunityStore\Src\CommunityStore\Report\ProductReport as StoreProductReport;
 use \Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductLocation as StoreProductLocation;
 
+
 class ProductList extends AttributedItemList
 {
     protected $gIDs = array();
@@ -180,13 +181,14 @@ class ProductList extends AttributedItemList
                 foreach ($products as $product) {
                     $pIDs[] = $product['pID'];
                 }
+
                 foreach ($pIDs as $pID) {
-                    $query->addOrderBy("pID = ?", 'DESC')->setParameter($paramcount++, $pID);
+                    $query->addOrderBy("p.pID = ?", 'DESC')->setParameter($paramcount++, $pID);
                 }
                 break;
             case "related":
                 if (!empty($relatedids)) {
-                    $query->addOrderBy('FIELD (pID, '. implode(',', $relatedids) .')');
+                    $query->addOrderBy('FIELD (p.pID, '. implode(',', $relatedids) .')');
                 }
                 break;
             case "category":
@@ -214,6 +216,8 @@ class ProductList extends AttributedItemList
         if ($this->search) {
             $query->andWhere('pName like ?')->setParameter($paramcount++, '%'. $this->search. '%')->orWhere('pSKU like ?')->setParameter($paramcount++, '%'. $this->search. '%');
         }
+
+		$query->leftJoin('p', 'CommunityStoreProductSearchIndexAttributes', 'csi', 'p.pID = csi.pID');
 
         return $query;
     }

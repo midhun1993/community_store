@@ -22,7 +22,7 @@ use Concrete\Package\CommunityStore\Src\Attribute\Key\StoreOrderKey as StoreOrde
 
 class Checkout extends PageController
 {
-    public function view()
+    public function view($guest = false)
     {
         if ($this->post()) {
             if ($this->post('action') == 'code') {
@@ -50,6 +50,7 @@ class Checkout extends PageController
         $this->set('customer', $customer);
         $guestCheckout = Config::get('community_store.guestCheckout');
         $this->set('guestCheckout', ($guestCheckout ? $guestCheckout : 'off'));
+        $this->set('guest', isset($guest) && (bool)$guest);
         $this->set('requiresLogin', StoreCart::requiresLogin());
 
         $cart = StoreCart::getCart();
@@ -195,16 +196,16 @@ class Checkout extends PageController
         $this->set("enabledPaymentMethods",$availableMethods);
     }
 
-    public function failed()
+    public function failed($guest = false)
     {
         $this->set('shippingInstructions', StoreCart::getShippingInstructions());
         $this->set('paymentErrors',Session::get('paymentErrors'));
         $this->set('activeShippingLabel', StoreShippingMethod::getActiveShippingLabel());
         $this->set('shippingTotal', StoreCalculator::getShippingTotal());
         $this->set('lastPaymentMethodHandle',Session::get('paymentMethod'));
-        $this->view();
+        $this->view($guest);
     }
-    public function submit()
+    public function submit($guest = false)
     {
         $data = $this->post();
         Session::set('paymentMethod',$data['payment-method']);
@@ -220,15 +221,23 @@ class Checkout extends PageController
         }
 
         if($pm->getMethodController()->isExternal()){
-            $order = StoreOrder::add($pm,null,'incomplete');
-            Session::set('orderID',$order->getOrderID());
-            $this->redirect('/checkout/external');
+            if(StoreCart::getTotalItemsInCart() != 0){
+                $order = StoreOrder::add($pm,null,'incomplete');
+                Session::set('orderID',$order->getOrderID());
+                $this->redirect('/checkout/external');
+            }else{
+               $this->redirect("/cart/");   
+            }
         } else {
             $payment = $pm->submitPayment();
             if($payment['error']==1){
                 $errors = $payment['errorMessage'];
                 Session::set('paymentErrors',$errors);
-                $this->redirect("/checkout/failed#payment");
+                if ($guest) {
+                    $this->redirect("/checkout/failed/1#payment");
+                } else {
+                    $this->redirect("/checkout/failed#payment");
+                }
             } else {
                 $transactionReference = $payment['transactionReference'];
                 $order = StoreOrder::add($pm,$transactionReference);
@@ -239,8 +248,17 @@ class Checkout extends PageController
     }
     public function external()
     {
+        $this->requireAsset('javascript', 'jquery');
         $pmHandle = Session::get('paymentMethod');
-        $pm = StorePaymentMethod::getByHandle($pmHandle);
+        $pm = false;
+
+        if ($pmHandle) {
+            $pm = StorePaymentMethod::getByHandle($pmHandle);
+        }
+
+        if (!$pm) {
+            $this->redirect('/checkout');
+        }
 
         $this->set('pm',$pm);
         $this->set('action',$pm->getMethodController()->getAction());

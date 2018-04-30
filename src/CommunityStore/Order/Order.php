@@ -3,7 +3,6 @@ namespace Concrete\Package\CommunityStore\Src\CommunityStore\Order;
 
 use User;
 use Core;
-use Concrete\Core\Mail\Service as MailService;
 use Group;
 use Events;
 use Config;
@@ -131,7 +130,7 @@ class Order
     {
         $this->orderItems = new ArrayCollection();
     }
-    
+
     public function setCustomerID($cID)
     {
         $this->cID = $cID;
@@ -475,7 +474,6 @@ class Order
         $sRateID = StoreShippingMethod::getActiveRateID();
         $sInstructions = StoreCart::getShippingInstructions();
         $totals = StoreCalculator::getTotals();
-        StoreCart::getShippingInstructions('');
         $shippingTotal = $totals['shippingTotal'];
         $taxes = $totals['taxes'];
         $total = $totals['total'];
@@ -541,6 +539,7 @@ class Order
                 }
             }
             $orderDiscount->setDisplay($discount->getDisplay());
+            $orderDiscount->setDeductType($discount->getDeductType());
             $orderDiscount->setName($discount->getName());
             $orderDiscount->setDeductFrom($discount->getDeductFrom());
             $orderDiscount->setPercentage($discount->getPercentage());
@@ -571,13 +570,13 @@ class Order
             $customer = new StoreCustomer();
         }
         $email = $customer->getEmail();
-        $billing_first_name = $customer->getValue("billing_first_name");
-        $billing_last_name = $customer->getValue("billing_last_name");
-        $billing_address = $customer->getValueArray("billing_address");
-        $billing_phone = $customer->getValue("billing_phone");
-        $shipping_first_name = $customer->getValue("shipping_first_name");
-        $shipping_last_name = $customer->getValue("shipping_last_name");
-        $shipping_address = $customer->getValueArray("shipping_address");
+        $billing_first_name = Session::get('billing_first_name');
+        $billing_last_name = Session::get('billing_last_name');
+        $billing_address = Session::get('billing_address');
+        $billing_phone = Session::get('billing_phone');
+        $shipping_first_name = Session::get('shipping_first_name');
+        $shipping_last_name = Session::get('shipping_last_name');
+        $shipping_address = Session::get('shipping_address');
 
         $this->setAttribute("email", $email);
         $this->setAttribute("billing_first_name", $billing_first_name);
@@ -589,6 +588,12 @@ class Order
             $this->setAttribute("shipping_last_name", $shipping_last_name);
             $this->setAttribute("shipping_address", $shipping_address);
         }
+
+        if (Config::get('community_store.vat_number')) {
+            $vat_number = $customer->getValue("vat_number");
+            $this->setAttribute("vat_number", $vat_number);
+        }
+
     }
 
     // if sameRequest = true, it's indicating that the same request used to place the order
@@ -601,6 +606,7 @@ class Order
 
         $pmID = $this->getPaymentMethodID();
 
+        $sendReceipt = true;
         if ($pmID) {
             $paymentMethodUsed = StorePaymentMethod::getByID($this->getPaymentMethodID());
 
@@ -609,6 +615,7 @@ class Order
                 if ($paymentMethodUsed->getMethodController()->markPaid()) {
                    $this->completePayment($sameRequest);
                 }
+                $sendReceipt = $paymentMethodUsed->getMethodController()->sendReceipt();
             }
         }
 
@@ -620,7 +627,9 @@ class Order
         Events::dispatch('on_community_store_order', $event);
 
         //receipt
-        $this->sendOrderReceipt();
+        if ($sendReceipt) {
+            $this->sendOrderReceipt();
+        }
 
         // notifications
         $this->sendNotifications();
@@ -640,6 +649,7 @@ class Order
     public function completePostPaymentProcesses($sameRequest = false) {
         $groupstoadd = array();
         $createlogin = false;
+        $usercreated = false;
         $orderItems = $this->getOrderItems();
 
         foreach ($orderItems as $orderItem) {
@@ -703,6 +713,7 @@ class Order
 
                 $userRegistrationService = \Core::make('Concrete\Core\User\RegistrationServiceInterface');
                 $newuser = $userRegistrationService->create(array('uName' => $newusername, 'uEmail' => trim($email), 'uPassword' => $password));
+                $usercreated = true;
 
                 if (Config::get('concrete.user.registration.email_registration')) {
                     $mh->addParameter('username', trim($email));
@@ -743,30 +754,60 @@ class Order
         }
 
         if ($user) {  // $user is going to either be the new one, or the user of the currently logged in customer
-
-            // update the order created with the user from the newly created user
+            // update the order created with the newly created user
             $this->setCustomerID($user->getUserID());
             $this->save();
 
-            $billing_first_name = $this->getAttribute("billing_first_name");
-            $billing_last_name = $this->getAttribute("billing_last_name");
-            $billing_address = $this->getAttribute("billing_address");
-            $billing_phone = $this->getAttribute("billing_phone");
-            $shipping_first_name = $this->getAttribute("shipping_first_name");
-            $shipping_last_name = $this->getAttribute("shipping_last_name");
-            $shipping_address = $this->getAttribute("shipping_address");
+            if ($usercreated) {
+                $billing_first_name = $this->getAttribute("billing_first_name");
+                $billing_last_name = $this->getAttribute("billing_last_name");
+                $billing_address = clone $this->getAttribute("billing_address");
+                $billing_phone = $this->getAttribute("billing_phone");
+                $shipping_first_name = $this->getAttribute("shipping_first_name");
+                $shipping_last_name = $this->getAttribute("shipping_last_name");
+                $shipping_address = $this->getAttribute("shipping_address");
 
-            // update the  user's attributes
-            $customer = new StoreCustomer($user->getUserID());
-            $customer->setValue('billing_first_name', $billing_first_name);
-            $customer->setValue('billing_last_name', $billing_last_name);
-            $customer->setValue('billing_address', $billing_address);
-            $customer->setValue('billing_phone', $billing_phone);
+                if ($shipping_address) {
+                    $shipping_address = clone $shipping_address;
+                }
 
-            if ($this->isShippable()) {
-                $customer->setValue('shipping_first_name', $shipping_first_name);
-                $customer->setValue('shipping_last_name', $shipping_last_name);
-                $customer->setValue('shipping_address', $shipping_address);
+                $noBillingSaveGroups = Config::get('community_store.noBillingSaveGroups');
+                $noBillingSave  = Config::get('community_store.noBillingSave');
+
+                $usergroups = $user->getUserGroups();
+
+                if (!is_array($usergroups)) {
+                    $usergroups = array();
+                }
+
+                $matchingGroups = array_intersect(explode(',', $noBillingSaveGroups), $usergroups);
+
+                if ($noBillingSaveGroups && empty($matchingGroups)) {
+                    $noBillingSave = false;
+                }
+
+                // update the  user's attributes
+                if (!$noBillingSave) {
+                    $user->setAttribute('billing_first_name', $billing_first_name);
+                    $user->setAttribute('billing_last_name', $billing_last_name);
+                    $user->setAttribute('billing_address', $billing_address);
+                    $user->setAttribute('billing_phone', $billing_phone);
+                }
+
+                $noShippingSaveGroups = Config::get('community_store.noShippingSaveGroups');
+                $noShippingSave = Config::get('community_store.noShippingSave');
+
+                $matchingGroups = array_intersect(explode(',', $noBillingSaveGroups), $usergroups);
+
+                if ($noShippingSaveGroups  &&empty($matchingGroups)) {
+                    $noShippingSave = false;
+                }
+
+                if ($this->isShippable() && !$noShippingSave) {
+                    $user->setAttribute('shipping_first_name', $shipping_first_name);
+                    $user->setAttribute('shipping_last_name', $shipping_last_name);
+                    $user->setAttribute('shipping_address', $shipping_address);
+                }
             }
 
             //add user to Store Customers group
@@ -785,7 +826,7 @@ class Order
     }
 
     public function sendNotifications() {
-        $mh = new MailService();
+        $mh = Core::make('mail');
 
         $notificationEmails = explode(",", Config::get('community_store.notificationemails'));
         $notificationEmails = array_map('trim', $notificationEmails);
@@ -833,7 +874,7 @@ class Order
     }
 
     public function sendOrderReceipt($email = '') {
-        $mh = new MailService();
+        $mh = Core::make('mail');
         $fromName = Config::get('community_store.emailalertsname');
 
         $fromEmail = Config::get('community_store.emailalerts');
@@ -1059,7 +1100,7 @@ class Order
     }
 
     public function getAddressValue($handle, $valuename) {
-        $att = $this->getValue($handle);
+        $att = $this->getAttribute($handle);
         return $this->returnAttributeValue($att,$valuename);
     }
 

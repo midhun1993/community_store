@@ -48,6 +48,8 @@ var communityStore = {
             url: PRODUCTMODAL,
             data: {pID: pID},
             type: 'get',
+            cache: false,
+            dataType : 'text',
             success: function (modalContent) {
                 communityStore.openModal(modalContent);
             }
@@ -57,6 +59,8 @@ var communityStore = {
     displayCart: function (res, animatecart) {
         $.ajax({
             type: "POST",
+            cache: false,
+            dataType : 'text',
             data: res,
             url: CARTURL + '/getmodal',
             success: function (data) {
@@ -111,6 +115,8 @@ var communityStore = {
                 url: CARTURL + "/add",
                 data: serial,
                 type: 'post',
+                cache: false,
+                dataType : 'text',
                 success: function (data) {
                     var res = jQuery.parseJSON(data);
 
@@ -136,6 +142,8 @@ var communityStore = {
             url: CARTURL + "/update",
             data: {instance: instanceID, pQty: qty},
             type: 'post',
+            cache: false,
+            dataType : 'text',
             success: function (data) {
                 if (modal) {
                     var res = jQuery.parseJSON(data);
@@ -155,6 +163,8 @@ var communityStore = {
             url: CARTURL + "/update",
             data: {instance: instances, pQty: quantities},
             type: 'post',
+            cache: false,
+            dataType : 'text',
             success: function (data) {
                 if (modal) {
                     var res = jQuery.parseJSON(data);
@@ -172,6 +182,8 @@ var communityStore = {
             url: CARTURL + "/remove",
             data: {instance: instanceID},
             type: 'post',
+            cache: false,
+            dataType : 'text',
             success: function (data) {
                 if (modal) {
                     var res = jQuery.parseJSON(data);
@@ -186,6 +198,10 @@ var communityStore = {
     clearCart: function (modal) {
         $.ajax({
             url: CARTURL + "/clear",
+            type: 'post',
+            cache: false,
+            dataType : 'text',
+            data: {clear: 1},
             success: function (data) {
                 if (modal) {
                     var res = jQuery.parseJSON(data);
@@ -202,6 +218,8 @@ var communityStore = {
     refreshCartTotals: function(callback) {
         $.ajax({
             url: CARTURL + '/getCartSummary',
+            cache: false,
+            dataType : 'text',
             success: function (response) {
                 var values = $.parseJSON(response);
                 var itemCount = values.itemCount;
@@ -281,6 +299,8 @@ var communityStore = {
         $.ajax({
             url: CHECKOUTURL + "/getstates",
             type: 'post',
+            cache: false,
+            dataType : 'text',
             data: {country: countryCode, selectedState: selectedState, type: "billing", class: classList, data: dataList},
             success: function (states) {
                 $("#store-checkout-billing-state").replaceWith(states);
@@ -300,6 +320,8 @@ var communityStore = {
         $.ajax({
             url: CHECKOUTURL + "/getstates",
             type: 'post',
+            cache: false,
+            dataType : 'text',
             data: {country: countryCode, selectedState: selectedState, type: "shipping"},
             success: function (states) {
                 $("#store-checkout-shipping-state").replaceWith(states);
@@ -308,7 +330,7 @@ var communityStore = {
     },
 
     nextPane: function (obj) {
-        if ($(obj)[0].checkValidity()) {
+        if (typeof $(obj)[0].checkValidity === "undefined" || $(obj)[0].checkValidity()) {
             var pane = $(obj).closest(".store-checkout-form-group").find('.store-checkout-form-group-body').parent().next();
             $('.store-active-form-group').removeClass('store-active-form-group');
             pane.addClass('store-active-form-group');
@@ -325,6 +347,8 @@ var communityStore = {
     showShippingMethods: function (callback) {
         $.ajax({
             url: CHECKOUTURL + "/getShippingMethods",
+            cache: false,
+            dataType : 'text',
             success: function (html) {
                 $("#store-checkout-shipping-method-options").html(html);
                 $('.store-whiteout').remove();
@@ -371,7 +395,7 @@ var communityStore = {
 };
 
 $(document).ready(function () {
-    if ($('.store-checkout-form-shell').size() > 0) {
+    if ($('.store-checkout-form-shell form').size() > 0) {
         communityStore.updateBillingStates(true);
         communityStore.updateShippingStates(true);
         communityStore.showShippingMethods();
@@ -395,9 +419,28 @@ $(document).ready(function () {
 
         $("#store-checkout-form-group-other-attributes .row").each(function(index, el) {
             var akID = $(el).data("akid");
-            var value = $(el).find(".form-control").val();
-            $('.store-summary-order-choices-' + akID).html(value.replace(/[\n\r]/g, '<br>'));
-            $('#store-checkout-form-group-payment').append('<input name="akID[' + akID + '][value]" type="hidden" value="' + value + '">')
+            var field = $(el).find(".form-control");
+
+            var value = '0';
+
+            // look for checkbox
+            if (!field.length) {
+                var field = $(el).find(".ccm-input-checkbox").first();
+
+                if (field) {
+                    if (field.is(':checked')) {
+                        value = '1';
+                    }
+                }
+            } else {
+                value = field.val();
+            }
+
+            if (field.length) {
+                $('.store-summary-order-choices-' + akID).html(value.replace(/[\n\r]/g, '<br>'));
+                $('#akIDinput'+ akID).remove();
+                $('#store-checkout-form-group-payment').append('<input id="akIDinput'+ akID +'" name="akID[' + akID + '][value]" type="hidden" value="' + value + '">')
+            }
         });
 
         communityStore.waiting();
@@ -405,6 +448,8 @@ $(document).ready(function () {
         $.ajax({
             url: CHECKOUTURL + "/updater",
             type: 'post',
+            cache: false,
+            dataType : 'text',
             data: {
                 adrType: 'billing',
                 email: email,
@@ -450,6 +495,7 @@ $(document).ready(function () {
         });
 
     });
+
     $("#store-checkout-form-group-shipping").submit(function (e) {
         e.preventDefault();
         var sfName = $("#store-checkout-shipping-first-name").val();
@@ -467,6 +513,8 @@ $(document).ready(function () {
         $.ajax({
             url: CHECKOUTURL + "/updater",
             type: 'post',
+            cache: false,
+            dataType : 'text',
             data: {
                 adrType: 'shipping',
                 fName: sfName,
@@ -514,6 +562,8 @@ $(document).ready(function () {
         $.ajax({
             url: CHECKOUTURL + "/setVatNumber",
             type: 'post',
+            cache: false,
+            dataType : 'text',
             data: {
                 vat_number: vat_number
             },
@@ -544,7 +594,6 @@ $(document).ready(function () {
 
     });
 
-
     $("#store-checkout-form-group-shipping-method").submit(function (e) {
         e.preventDefault();
         communityStore.waiting();
@@ -561,6 +610,8 @@ $(document).ready(function () {
 
             $.ajax({
                 type: 'post',
+                cache: false,
+                dataType : 'text',
                 data: { smID: smID,
                     sInstructions: sInstructions},
                 url: CHECKOUTURL + "/selectShipping",
@@ -574,6 +625,7 @@ $(document).ready(function () {
 
         }
     });
+
     $(".store-btn-previous-pane").click(function (e) {
         //hide the body of the current pane, go to the next pane, show that body.
         var pane = $(this).closest(".store-checkout-form-group").find('.store-checkout-form-group-body').parent().prev();

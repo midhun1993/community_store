@@ -8,6 +8,7 @@ use Concrete\Package\CommunityStore\Src\CommunityStore\Shipping\Method\ShippingM
 use Concrete\Package\CommunityStore\Src\CommunityStore\Discount\DiscountRule as StoreDiscountRule;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductVariation\ProductVariation as StoreProductVariation;
 use Concrete\Package\CommunityStore\Src\CommunityStore\Product\ProductOption\ProductOption as StoreProductOption;
+use Concrete\Package\CommunityStore\Src\CommunityStore\Utilities\Calculator as StoreCalculator;
 
 defined('C5_EXECUTE') or die(_("Access Denied."));
 class Cart
@@ -16,10 +17,11 @@ class Cart
     protected static $discounts = null;
     protected static $hasChanged = false;
 
-    public static function getCart()
+    // if force set to true, will get cart details fresh, useful if programatically adding things to the cart
+    public static function getCart($force = false)
     {
         // this acts as a singleton, in that it wil only fetch the cart from the session and check it for validity once per request
-        if (!isset(self::$cart)) {
+        if (!isset(self::$cart) || $force) {
             $cart = Session::get('communitystore.cart');
             if (!is_array($cart)) {
                 Session::set('communitystore.cart', array());
@@ -79,20 +81,47 @@ class Cart
             self::$discounts = array();
 
             $rules = StoreDiscountRule::findAutomaticDiscounts();
-            if (count($rules) > 0) {
-                self::$discounts = array_merge(self::$discounts, $rules);
-            }
 
             $code = trim(Session::get('communitystore.code'));
             if ($code) {
-                $rules = StoreDiscountRule::findDiscountRuleByCode($code);
+                $coderules = StoreDiscountRule::findDiscountRuleByCode($code);
 
-                if (count($rules) > 0) {
-                    self::$discounts = array_merge(self::$discounts, $rules);
+                if (count($coderules)) {
+                    $rules = array_merge($rules, $coderules);
                 } else {
                     Session::set('communitystore.code', '');
                 }
             }
+
+            if (count($rules) > 0) {
+                foreach($rules as $rule) {
+                    $discountProductGroups = $rule->getProductGroups();
+                    $include = true;
+                    $matchingprods = array();
+
+                    if (!empty($discountProductGroups)) {
+                        $include = false;
+                        foreach($checkeditems as $cartitem) {
+                            $groupids = $cartitem['product']['object']->getGroupIDs();
+
+                            if (count(array_intersect($discountProductGroups,$groupids)) > 0) {
+                                $include = true;
+                                $cartitem['product']['object']->addDiscountRule($rule);
+                            }
+                        }
+                    } else {
+                        foreach($checkeditems as $key=>$cartitem) {
+                            $cartitem['product']['object']->addDiscountRule($rule);
+                        }
+                    }
+
+                    if ($include) {
+                        self::$discounts[] = $rule;
+                    }
+                }
+            }
+
+
 
             self::$cart = $checkeditems;
         }
@@ -180,31 +209,39 @@ class Cart
             }
 
             $optionItemIds = array();
+            $optionsInVariations = array();
 
             // search for product options, if found, collect the id
             foreach ($cartItem['productAttributes'] as $name => $value) {
                 $groupID = false;
+                $isOptionList = false;
 
                 if (substr($name, 0, 2) == 'po') {
-                    $optionItemIds[] = $value;
+                    $isOptionList = true;
+                    $groupID = str_replace("po", "", $name);;
+
                     if (!$value) {
                         $error = true;  // if we have select option but no value
                     }
 
                 } elseif (substr($name, 0, 2) == 'pt') {
                     $groupID = str_replace("pt", "", $name);
-
                 } elseif (substr($name, 0, 2) == 'pa') {
-                    $groupID = str_replace("pa", "", $groupID);
-
+                    $groupID = str_replace("pa", "", $name);
                 } elseif (substr($name, 0, 2) == 'ph') {
                     $groupID = str_replace("ph", "", $name);
+                } elseif (substr($name, 0, 2) == 'pc') {
+                    $groupID = str_replace("pc", "", $name);
                 }
-
 
                 // if there is a groupID, check to see if it's a required field, reject if no value
                 if ($groupID) {
                     $option = StoreProductOption::getByID($groupID);
+
+                    if ($isOptionList && $option->getIncludeVariations()) {
+                        $optionsInVariations[] = $value;
+                    }
+
                     if ($option->getRequired() && !$value) {
                         $error = true;
                     }
@@ -212,14 +249,14 @@ class Cart
             }
 
 
-            if (!empty($optionItemIds) && $product->hasVariations()) {
+            if (!empty($optionsInVariations) && $product->hasVariations()) {
                 // find the variation via the ids of the options
-                $variation = StoreProductVariation::getByOptionItemIDs($optionItemIds);
+                $variation = StoreProductVariation::getByOptionItemIDs($optionsInVariations);
 
                 // association the variation with the product
                 if ($variation) {
                     $options = $variation->getOptions();
-                    if (count($options) == count($optionItemIds)) {  // check if we've matched to a variation with the correct number of options
+                    if (count($options) == count($optionsInVariations)) {  // check if we've matched to a variation with the correct number of options
                         $product->setVariation($variation);
                         $cartItem['product']['variation'] = $variation->getID();
                     } else {
@@ -265,10 +302,12 @@ class Cart
 
                 $cartItem['product']['qty'] = $newquantity;
 
-                if ($product->isExclusive()) {
-                    $cart = array($cartItem);
-                } else {
-                    $cart[] = $cartItem;
+                if ($cartItem['product']['qty'] > 0) {
+                    if ($product->isExclusive()) {
+                        $cart = array($cartItem);
+                    } else {
+                        $cart[] = $cartItem;
+                    }
                 }
 
                 $added = $newquantity;

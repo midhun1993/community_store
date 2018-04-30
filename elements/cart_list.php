@@ -70,6 +70,9 @@ if ($cart) {
                                     } elseif (substr($groupID, 0, 2) == 'ph')  {
                                         $groupID = str_replace("ph", "", $groupID);
                                         $optionvalue = $valID;
+                                    } elseif (substr($groupID, 0, 2) == 'pc')  {
+                                        $groupID = str_replace("pc", "", $groupID);
+                                        $optionvalue = $valID;
                                     }
 
                                     $optiongroup = StoreProductOption::getByID($groupID);
@@ -90,7 +93,7 @@ if ($cart) {
                         <?php if (isset($cartItem['product']['customerPrice'])) { ?>
                             <?=StorePrice::format($cartItem['product']['customerPrice'])?>
                         <?php } else {  ?>
-                            <?=StorePrice::format($product->getActivePrice())?>
+                            <?=StorePrice::format($product->getActivePrice($qty))?>
                         <?php } ?>
                     </td>
 

@@ -152,6 +152,10 @@ class TaxRate
         return $em->find(get_class(), $trID);
     }
 
+    public function isVatNumberEligible() {
+        return $this->getTaxVatExclude();
+    }
+
     public function isTaxable()
     {
         $taxAddress = $this->getTaxAddress();
@@ -226,7 +230,7 @@ class TaxRate
                         if (is_object($product->getTaxClass())) {
                             if ($product->getTaxClass()->taxClassContainsTaxRate($this)) {
                                 $taxCalc = Config::get('community_store.calculation');
-                                $productSubTotal = $product->getActivePrice() * $qty;
+                                $productSubTotal = $product->getActivePrice($qty) * $qty;
 
                                 if ($taxCalc == 'extract') {
                                     $taxrate =   1 + ($this->getTaxRate() / 100) ;
@@ -269,7 +273,7 @@ class TaxRate
                 //if this tax rate is in the tax class associated with this product
                 if ($productObj->getTaxClass()->taxClassContainsTaxRate($this)) {
                     $taxCalc = $taxCalc = Config::get('community_store.calculation');
-                    $productSubTotal = $productObj->getActivePrice() * $qty;
+                    $productSubTotal = $productObj->getActivePrice($qty) * $qty;
 
                     if ($taxCalc == 'extract') {
                         $taxrate = 1 + ($this->getTaxRate() / 100);
